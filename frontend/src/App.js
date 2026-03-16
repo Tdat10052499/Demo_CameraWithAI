@@ -1,34 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Container, Navbar, Row, Col, Card, Table, Badge, Spinner } from 'react-bootstrap';
+import { Container, Navbar, Row, Col, Card, Badge, Spinner, Button, Modal } from 'react-bootstrap';
 import moment from 'moment';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
-// 1. Cấu hình Supabase (Dùng lại thông tin cũ của bạn)
+// ================= CẤU HÌNH SUPABASE =================
 const SUPABASE_URL = "https://xmkstcpvqpmrsweyfate.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."; // Thay Key đầy đủ của bạn vào đây
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhta3N0Y3B2cXBtcnN3ZXlmYXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NzQxMDcsImV4cCI6MjA4OTI1MDEwN30.u8oDHo1MPWfZSOjMv68h3HmM47wSGC-GNWP4cuI3Gvw"; // Nhớ điền Key thật của bạn vào
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function App() {
   const [detections, setDetections] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // 2. Hàm lấy dữ liệu từ Table
-  const fetchDetections = async () => {
-    const { data, error } = await supabase
-      .from('detections')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (error) console.log('Lỗi lấy dữ liệu:', error);
-    else setDetections(data);
-    setLoading(false);
-  };
+  const [filter, setFilter] = useState('ALL'); // ALL, HEALTHY, DISEASE
+  
+  // State cho tính năng Phóng to ảnh (Modal)
+  const [showModal, setShowModal] = useState(false);
+  const [selectedImg, setSelectedImg] = useState(null);
 
   useEffect(() => {
     fetchDetections();
 
-    // 3. TÍNH NĂNG REALTIME: Tự động cập nhật khi ESP32 gửi ảnh mới
+    // Realtime Listener
     const channel = supabase
       .channel('schema-db-changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'detections' }, (payload) => {
@@ -39,77 +32,115 @@ function App() {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  const latest = detections[0];
+  const fetchDetections = async () => {
+    const { data, error } = await supabase
+      .from('detections')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (!error) setDetections(data);
+    setLoading(false);
+  };
+
+  // Logic lọc hình ảnh
+  const filteredDetections = detections.filter(item => {
+    if (filter === 'HEALTHY') return item.label === 'Healthy';
+    if (filter === 'DISEASE') return item.label !== 'Healthy' && item.label !== 'No Detection';
+    return true;
+  });
+
+  // Hàm mở Modal phóng to ảnh
+  const handleShow = (item) => {
+    setSelectedImg(item);
+    setShowModal(true);
+  };
 
   return (
-    <div className="bg-light" style={{ minHeight: '100vh' }}>
-      <Navbar bg="dark" variant="dark" className="mb-4 shadow-sm">
+    <div className="bg-light" style={{ minHeight: '100vh', paddingBottom: '50px' }}>
+      {/* NAVBAR TRONG SUỐT VÀ SANG TRỌNG */}
+      <Navbar bg="white" className="mb-4 shadow-sm py-3">
         <Container>
-          <Navbar.Brand href="#">Smart Garden AIoT Dashboard</Navbar.Brand>
+          <Navbar.Brand className="fw-bold text-success">
+            🌱 Smart Garden <span className="text-dark">Image Manager</span>
+          </Navbar.Brand>
+          <Navbar.Text className="text-muted">
+            Tổng số: <span className="fw-bold">{detections.length}</span> hình ảnh
+          </Navbar.Text>
         </Container>
       </Navbar>
 
       <Container>
+        {/* BỘ LỌC HÌNH ẢNH */}
+        <div className="d-flex justify-content-center mb-4 gap-2">
+          <Button variant={filter === 'ALL' ? 'dark' : 'outline-dark'} onClick={() => setFilter('ALL')} className="rounded-pill px-4">
+            Tất cả
+          </Button>
+          <Button variant={filter === 'HEALTHY' ? 'success' : 'outline-success'} onClick={() => setFilter('HEALTHY')} className="rounded-pill px-4">
+            Khỏe mạnh
+          </Button>
+          <Button variant={filter === 'DISEASE' ? 'danger' : 'outline-danger'} onClick={() => setFilter('DISEASE')} className="rounded-pill px-4">
+            Phát hiện bệnh
+          </Button>
+        </div>
+
+        {/* LƯỚI HÌNH ẢNH (GALLERY) */}
         {loading ? (
           <div className="text-center mt-5"><Spinner animation="border" variant="success" /></div>
         ) : (
-          <Row>
-            {/* CỘT TRÁI: ẢNH MỚI NHẤT */}
-            <Col lg={5} className="mb-4">
-              <Card className="shadow-sm border-0">
-                <Card.Header className="bg-white fw-bold">📸 Hình ảnh Real-time</Card.Header>
-                <Card.Body className="text-center">
-                  {latest ? (
-                    <>
-                      <img 
-                        src={latest.image_url} 
-                        alt="Latest detection" 
-                        className="img-fluid rounded mb-3 border"
-                        style={{ maxHeight: '400px', objectFit: 'cover' }}
-                      />
-                      <h4>
-                        <Badge bg={latest.label === 'Healthy' ? 'success' : latest.label === 'No Detection' ? 'secondary' : 'danger'}>
-                          {latest.label}
-                        </Badge>
-                      </h4>
-                      <small className="text-muted">Độ tin cậy: {latest.confidence * 100}%</small>
-                    </>
-                  ) : <p>Chưa có dữ liệu nào gửi lên.</p>}
-                </Card.Body>
-              </Card>
-            </Col>
-
-            {/* CỘT PHẢI: BẢNG LỊCH SỬ */}
-            <Col lg={7}>
-              <Card className="shadow-sm border-0">
-                <Card.Header className="bg-white fw-bold">Nhật ký hệ thống</Card.Header>
-                <Table hover responsive className="mb-0">
-                  <thead className="table-light">
-                    <tr>
-                      <th>Thời gian</th>
-                      <th>Kết quả</th>
-                      <th>Độ tin cậy</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detections.map((item) => (
-                      <tr key={item.id}>
-                        <td>{moment(item.created_at).fromNow()}</td>
-                        <td>
-                          <span className={`fw-bold ${item.label === 'Healthy' ? 'text-success' : 'text-danger'}`}>
-                            {item.label}
-                          </span>
-                        </td>
-                        <td>{item.confidence}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </Card>
-            </Col>
+          <Row className="g-4">
+            {filteredDetections.map((item) => (
+              <Col md={4} lg={3} key={item.id}>
+                <Card className="h-100 shadow-sm border-0" style={{ cursor: 'pointer', transition: 'transform 0.2s' }} onClick={() => handleShow(item)}>
+                  {/* Ảnh thu nhỏ */}
+                  <Card.Img variant="top" src={item.image_url} style={{ height: '200px', objectFit: 'cover' }} />
+                  <Card.Body className="text-center p-3">
+                    <Card.Title className="mb-2">
+                      <Badge bg={item.label === 'Healthy' ? 'success' : item.label === 'No Detection' ? 'secondary' : 'danger'} className="px-3 py-2 rounded-pill">
+                        {item.label}
+                      </Badge>
+                    </Card.Title>
+                    <Card.Text className="text-muted small mb-0">
+                      {moment(item.created_at).format('DD/MM/YYYY HH:mm')}
+                    </Card.Text>
+                  </Card.Body>
+                </Card>
+              </Col>
+            ))}
+            
+            {filteredDetections.length === 0 && (
+              <div className="text-center text-muted mt-5">Không tìm thấy hình ảnh nào phù hợp.</div>
+            )}
           </Row>
         )}
       </Container>
+
+      {/* MODAL PHÓNG TO CHI TIẾT ẢNH */}
+      <Modal show={showModal} onHide={() => setShowModal(false)} size="lg" centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold">Chi tiết phân tích</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="text-center">
+          {selectedImg && (
+            <>
+              <img src={selectedImg.image_url} alt="Detail" className="img-fluid rounded shadow-sm mb-3" />
+              <div className="d-flex justify-content-around mt-3 p-3 bg-light rounded">
+                <div>
+                  <small className="text-muted d-block">Kết luận AI</small>
+                  <strong className={selectedImg.label === 'Healthy' ? 'text-success' : 'text-danger'}>{selectedImg.label}</strong>
+                </div>
+                <div>
+                  <small className="text-muted d-block">Độ tin cậy</small>
+                  <strong>{(selectedImg.confidence * 100).toFixed(1)}%</strong>
+                </div>
+                <div>
+                  <small className="text-muted d-block">Thời gian chụp</small>
+                  <strong>{moment(selectedImg.created_at).format('HH:mm - DD/MM/YYYY')}</strong>
+                </div>
+              </div>
+            </>
+          )}
+        </Modal.Body>
+      </Modal>
     </div>
   );
 }
